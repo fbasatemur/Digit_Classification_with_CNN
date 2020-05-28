@@ -6,8 +6,8 @@ Created on Thu May 21 02:23:02 2020
 """
 
 from PyQt5.QtWidgets import *
-from PyQt5.QtGui import QIcon, QPixmap
-from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QIcon, QPixmap, QImage,QPainter, QPen
+from PyQt5.QtCore import Qt, QPoint
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -100,6 +100,79 @@ for i in range(2):
 model1 = load_model("model1.h5")
 model2 = load_model("model2.h5")
 
+#%% Canvas
+class Canvas(QMainWindow):
+      
+      def __init__(self):
+            super().__init__()
+      
+            self.width = 400
+            self.height = 400
+            self.setWindowTitle("Draw Digit")
+            self.setGeometry(100, 100, self.width, self.height)
+            self.setWindowIcon(QIcon("write_pencil-512.png")) 
+            
+            
+            self.image = QImage(self.size(), QImage.Format_RGB32)
+            self.image.fill(Qt.black)
+            
+            self.lastPoint = QPoint()
+            self.drawing = False
+            
+            # image array
+            self.image_np = np.zeros([self.width, self.height])
+            
+            button1 = QPushButton("Ok", self)
+            button1.move(2,2)
+            button1.clicked.connect(self.enterFunc)
+            
+            
+      def paintEvent(self, event):
+            canvasPainter = QPainter(self)
+            canvasPainter.drawImage(self.rect(), self.image, self.image.rect())
+      
+      def enterFunc(self):
+            ptr = self.image.constBits()
+            ptr.setsize(self.image.byteCount())
+            
+            self.image_np = np.array(ptr).reshape(self.width, self.height, 4)
+            self.image_np = self.image_np[:,:,0]
+            self.image_np = self.image_np / 255.0
+            
+            if np.sum(self.image_np) == 0:
+                  print("please write a digit")
+            else:
+                  plt.figure(figsize = (1,1), dpi = 200)
+                  plt.imshow(self.image_np, cmap="gray")
+                  plt.axis("off")
+                  plt.grid(False)
+                  plt.savefig("./input_Image.png")
+                  
+                  self.close()
+                  
+      def mousePressEvent(self, event):
+            
+            if event.button() == Qt.LeftButton:
+                  self.lastPoint = event.pos()
+                  self.drawing = True
+                  
+                  print(self.lastPoint)
+      
+      def mouseMoveEvent(self, event):
+            
+            if (event.buttons() == Qt.LeftButton) & self.drawing:
+                  painter = QPainter(self.image)
+                  painter.setPen(QPen(Qt.white, 15, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+                  painter.drawLine(self.lastPoint, event.pos())
+                  self.lastPoint = event.pos()
+                  self.update()
+      
+      def mouseReleaseEvent(self, event):
+            
+            if event.button == Qt.LeftButton:
+                  self.drawing = False
+                  
+      
 #%% GUI
 
 class Window(QMainWindow):
@@ -108,12 +181,14 @@ class Window(QMainWindow):
             super().__init__()
             
             # main window
-            self.width = 1080
+            self.width = 1280
             self.height = 640
             
             self.setWindowTitle("Digit Classification")
-            self.setGeometry(100, 100, self.width, self.height)
+            self.setGeometry(200, 200, self.width, self.height)
             # self.setWindowIcon(QIcon("icon.png"))            
+            
+            self.createCanvas = Canvas()
             
             self.tabWidget()
             self.widgets()
@@ -142,7 +217,7 @@ class Window(QMainWindow):
             self.openCanvas.clicked.connect(self.openCanvasFunc)
             
             self.inputImage = QLabel(self)
-            self.inputImage.setPixmap(QPixmap("drawInputImage.png"))
+            # self.inputImage.setPixmap(QPixmap("input_Image.png.png"))
             
             self.searchText = QLabel("Real Number: ")            
             
@@ -158,7 +233,6 @@ class Window(QMainWindow):
             self.noiseSlider.setMinimum(0)
             self.noiseSlider.setMaximum(100)
             self.noiseSlider.setTickPosition(QSlider.TicksBelow)
-            #self.noiseSlider.setTick.Interval(1)
             self.noiseSlider.valueChanged.connect(self.noiseSliderFunc)      
             
             self.remember = QCheckBox("Save Result", self)
@@ -168,8 +242,6 @@ class Window(QMainWindow):
             
             #tab1 right middle 
             self.outputImage = QLabel(self)
-            self.outputImage.setPixmap(QPixmap("icon1.png"))
-            
             self.outputLabel = QLabel("", self)
             self.outputLabel.setAlignment(Qt.AlignCenter)
             
@@ -200,19 +272,81 @@ class Window(QMainWindow):
             
             
       def drawCanvasFunc(self):
-            pass
+            self.createCanvas.show()
       
       def openCanvasFunc(self):
-            pass
-
+            self.inputImage.setPixmap(QPixmap("input_Image.png"))
 
       def noiseSliderFunc(self):
             val = self.noiseSlider.value()
             self.noiseText.setText("Add noise: % "+ str(val))
 
       def predictionFunc(self):
-            pass
-
+            save_str = ""
+            
+            real_entry = self.searchEntry.text()
+            save_str = save_str + " real entry: " + str(real_entry) + ", "
+            
+            # CNN model selection
+            model_name = self.methodSelection.currentText()
+            
+            if model_name == "model1":
+                  model = load_model("model1.h5")
+            elif model_name == "model2":
+                  model = load_model("model2.h5")
+            else:
+                  print("Error")
+            
+            save_str += "model name: " + str(model_name) + ", "            
+            
+            # slider noise 
+            noise_val = self.noiseSlider.value()
+            
+            if noise_val != 0:
+                  noise_array = np.random.randint(0, noise_val, (28,28))/100
+            
+            else:
+                  noise_array = np.zeros([28,28])
+                  
+            save_str += "noise value: " + str(noise_val) + ", "
+            print(save_str)
+            
+            # load image as numpy 
+            image_array = mpimg.imread("input_Image.png")[26:175,26:175,0]
+            # plt.imshow(image_array, cmap = "gray")
+            resized_image_array = cv2.resize(image_array, dsize = (28,28), interpolation = cv2.INTER_CUBIC)
+            
+            # add noise
+            resized_image_array += noise_array
+            
+            plt.imshow(resized_image_array, cmap = "gray")
+            plt.title("added noise and resize")
+            
+            # predict
+            result = model.predict(resized_image_array.reshape(1,28,28,1))
+            QMessageBox.information(self, "information", "Classification is completed.")
+            predicted_class = np.argmax(result)
+            print("Prediction:", predicted_class)
+            
+            save_str += "Prediction class: " + str(predicted_class)
+            
+            # save result
+            if self.remember.isChecked():
+                  text_file = open("Output.txt", "w")
+                  text_file.write(save_str)
+                  text_file.close()
+            else:
+                  print("not save")
+            
+            self.outputImage.setPixmap(QPixmap("output_images\\" + str(predicted_class) + ".png"))
+            self.outputLabel.setText("Real: " + str(real_entry) + " and Predicted:" + str(predicted_class))
+            
+            
+            # set result
+            for row in range(10):
+                  self.resultTable.setItem(row, 0, QTableWidgetItem(str(row)))
+                  self.resultTable.setItem(row, 1, QTableWidgetItem(str(np.round(result[0][row], 5))))
+            
       def layouts(self):
             
             #tab1 layout
@@ -249,7 +383,7 @@ class Window(QMainWindow):
             # right 
             self.rightLayoutGroupBox = QGroupBox("Result")
             self.rightLayout.addRow(self.resultTable)
-            self.rightLayoutGroupBox.setLayout(self.rightMiddleLayout)
+            self.rightLayoutGroupBox.setLayout(self.rightLayout)
             
             # tab1 main Layout
             self.mainLayout.addWidget(self.leftLayoutGroupBox, 25)
